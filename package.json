@@ -1,0 +1,37 @@
+{
+  "author": "Sambasiva Suda <ssuda@epictions.com>",
+  "name": "elasticonnect",
+  "version": "0.0.1",
+  "description": "Elastic Search Dump, Update, Delete Utility Using Scan and Scroll",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/taskrabbit/elasticsearch-dump.git"
+  },
+  "main": "./dist/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "babel src --presets babel-preset-es2015 --out-dir dist",
+    "prepublish": "npm run build"
+  },
+  "engines": {
+    "node": ">=1.0.0"
+  },
+  "license": "ISC",
+  "devDependencies": {
+    "babel-cli": "6.4.5",
+    "babel-preset-es2015": "6.3.13"
+  },
+  "bin": {
+    "elasticonnect": "./bin/elasticonnect"
+  },
+  "dependencies": {
+    "async-q": "0.3.1",
+    "commander": "2.9.0",
+    "elasticsearch": "10.1.3",
+    "gulp": "3.9.0",
+    "inquirer": "0.11.4",
+    "lodash": "4.2.0",
+    "progress": "1.1.8",
+    "q": "1.4.1"
+  }
+}
