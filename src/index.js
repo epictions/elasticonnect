@@ -273,7 +273,7 @@ function list(val) {
 commander
   .version('0.0.1')
   .option('--input <input>', 'input uris, elasticsearch client nodes supports list, '
-          + 'example: http://localhost:9200/my_index/my_type,http://192.168.0.1:9200/my_index/my_type', list)
+          + 'example: elasticsearch://localhost:9200/my_index/my_type,http://192.168.0.1:9200/my_index/my_type', list)
   .option('--quiet', 'dont ask for confirmation')
   .option('--input-index [inputIndex]', 'input elasticsearch index')
   .option('--input-type [inputType]', 'input elasticsearch type')
@@ -311,7 +311,7 @@ commander
   .command('dump [query]')
   .description('dump documents by query')
   .option('--output [output]', 'list of elasticsearch client nodes, '
-          + 'example: http://localhost:9200,http://192.168.0.1:9200', list)
+          + 'example: elasticsearch://localhost:9200,http://192.168.0.1:9200', list)
   .option('--output-index [outputIndex]', 'output elasticsearch index')
   .option('--output-type [outputType]', 'output elasticsearch type')
   .option('--output-format [outputFormat]', 'if output is file uri, format of the file: JSON, LINE_DELIMETED_JSON, CSV')
