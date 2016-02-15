@@ -5,7 +5,7 @@
   "description": "Elastic Search Dump, Update, Delete Utility Using Scan and Scroll",
   "repository": {
     "type": "git",
-    "url": "git://github.com/taskrabbit/elasticsearch-dump.git"
+    "url": "git://github.com/epictions/elasticonnect.git"
   },
   "main": "./dist/index.js",
   "scripts": {
