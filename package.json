@@ -1,7 +1,7 @@
 {
   "author": "Sambasiva Suda <ssuda@epictions.com>",
   "name": "elasticonnect",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Elastic Search Dump, Update, Delete Utility Using Scan and Scroll",
   "repository": {
     "type": "git",
