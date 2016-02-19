@@ -183,7 +183,7 @@ function common(query, options) {
     if (commander.output) {
       createStreams(commander.output, 'output')
     }
-    else if (commander.task = 'dump') {
+    else if (commander.task == 'dump') {
       createStreams(commander.input, 'output')
     }
   }
@@ -321,6 +321,5 @@ commander
     commander.task = 'dump'
     common(query, options)
   })
-
 commander.parse(process.argv)
 
