@@ -282,6 +282,8 @@ commander
   .option('--size [size]', 'number of documents to fetch at a time, default: 50')
   .option('--max [max]', 'max number of documents to process, default: all')
   .option('--query-file [queryFile]', 'File to read the query from')
+  .option('--process-module [processModule]', 'module to manipulate the input documents,'
+          + 'signature: module.exports = function(resp, commander) {}')
   .option('--source [source]', 'list of fields to fetch, default: all example: title,content', list)
 
 commander
@@ -300,8 +302,6 @@ commander
 commander
   .command('update [query]')
   .description('update documents by query')
-  .option('--process-module <processModule>', 'module to manipulate the input documents,'
-          + 'signature: module.exports = function(resp, commander) {}')
   .action(function(query) {
     commander.task = 'update'
     common(query)
@@ -315,8 +315,6 @@ commander
   .option('--output-index [outputIndex]', 'output elasticsearch index')
   .option('--output-type [outputType]', 'output elasticsearch type')
   .option('--output-format [outputFormat]', 'if output is file uri, format of the file: JSON, LINE_DELIMETED_JSON, CSV')
-  .option('--process-module [processModule]', 'module to manipulate the input documents,  '
-          + 'signature: module.exports = function(resp, commander) {}')
   .action(function(query, options) {
     commander.task = 'dump'
     common(query, options)
