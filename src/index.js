@@ -97,6 +97,14 @@ function main() {
     query._source = commander.source
   }
 
+  if (commander.sourceExclude) {
+    query._sourceExclude = commander.sourceExclude
+  }
+
+  if (commander.sourceInclude) {
+    query._sourceInclude = commander.sourceInclude
+  }
+
   return commander.inputESClient.search(query)
   .then(scanAndScroll)
   .catch(function(ex) {
@@ -285,6 +293,8 @@ commander
   .option('--process-module [processModule]', 'module to manipulate the input documents,'
           + 'signature: module.exports = function(resp, commander) {}')
   .option('--source [source]', 'list of fields to fetch, default: all example: title,content', list)
+  .option('--sourceExclude [sourceExclude]', 'list of fields to exclude, example: title,content', list)
+  .option('--sourceInclude [sourceInclude]', 'list of fields to include, example: title,content', list)
 
 commander
   .command('delete [query]')
