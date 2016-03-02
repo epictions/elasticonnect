@@ -1,7 +1,7 @@
 
 var _ = require('lodash')
 
-module.exports = function(resp, commander) {
+exports.process = function(resp, commander) {
 
   var docs =  _.map(resp.hits.hits, function(hit) {
     return [

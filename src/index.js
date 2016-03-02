@@ -1,48 +1,51 @@
 
-var _ = require('lodash')
-var Q = require('q')
-var async = require('async-q')
-var elasticsearch = require('elasticsearch')
-var commander = require('commander')
-var fs = require('fs')
-var ProgressBar = require('progress')
-var inquirer = require('inquirer')
-var URL = require('url')
+const _ = require('lodash')
+const Q = require('q')
+const async = require('async-q')
+const elasticsearch = require('elasticsearch')
+const commander = require('commander')
+const fs = require('fs')
+const ProgressBar = require('progress')
+const inquirer = require('inquirer')
+const URL = require('url')
+const readline = require('readline')
 
-var debug = require('debug')('elasticonnect')
-var error =  require('debug')('elasticonnect')
+const debug = require('debug')('elasticonnect')
+const error =  require('debug')('elasticonnect')
 error.log = console.error.bind(console)
 
 function scanAndScroll(response) {
   var stop = false
   var scrollId = response._scroll_id
 
-  var tobeProcessed = commander.max && Math.min(commander.max, response.hits.total) || response.hits.total
-  var progressPrompt =  '  ' + (commander.task === 'delete' ? 'deleting' : 'dumping') + ' [:bar] :percent :current/:total :eta'
+  const tobeProcessed = commander.max && Math.min(commander.max, response.hits.total) || response.hits.total
+  const progressPrompt =  '  ' + (commander.task === 'delete' ? 'deleting' : 'dumping') + ' [:bar] :percent :current/:total :eta'
 
   if (!tobeProcessed) {
     return Q()
   }
 
   debug('Total', tobeProcessed)
-  var bar = new ProgressBar(progressPrompt, {
+  const bar = new ProgressBar(progressPrompt, {
     complete: '=',
     incomplete: ' ',
     width: 60,
     total: +tobeProcessed
   });
 
+  commander.processModule.start(commander)
 
-  return Q.fcall(function() {
+  return Q.fcall(() => {
     if (commander.quiet) {
       return
     }
-    var deferred = Q.defer()
+
+    const deferred = Q.defer()
     inquirer.prompt({
       type: 'confirm',
       name: 'answer',
       message: 'Are you sure to ' + commander.task + ' ' + tobeProcessed + ' documents'
-    }, function(answers) {
+    }, (answers) => {
       if (!answers.answer) {
         process.exit(0)
       }
@@ -50,18 +53,18 @@ function scanAndScroll(response) {
     })
     return deferred.promise
   })
-  .then(function() {
+  .then(() => {
     bar.tick(0)
-    return async.until(() => stop, function() {
+    return async.until(() => stop, () => {
       return commander.inputESClient.scroll({scrollId: scrollId, scroll: '1m'})
-      .then(function(resp) {
+      .then((resp) => {
         scrollId = resp._scroll_id
 
         if (resp.hits.hits.length) {
-          return Q.fcall(function() {
-            return commander.process(resp, commander)
+          return Q.fcall(() => {
+            return commander.processModule.process(resp, commander)
           })
-          .then(function() {
+          .then(() => {
             bar.tick(resp.hits.hits.length)
             if (bar.complete) {
               stop = true
@@ -75,50 +78,124 @@ function scanAndScroll(response) {
     })
   })
   .then(() => {
+    commander.processModule.end(commander)
     commander.inputESClient.clearScroll({scrollId: scrollId})
   })
 }
 
 function main() {
-  debug('Executing main')
+  debug('Executing main', commander.inputUriType)
 
-  var query = {
-    index: commander.inputIndex,
-    type: commander.inputType,
-    scroll: commander.scroll || '1m',
-    searchType: 'scan',
-    queryCache: true,
-    sort: ['_doc'],
-    size: commander.size || 50,
-    body: commander.query
-  }
+  return Q.fcall(() => {
+    if (commander.inputUriType === 'file') {
+      return async.eachSeries(commander.inputFileStreams, (stream) => {
+        var chunk
+        var json
+        var lines = []
+        var deferred = Q.defer()
+        var buffer = ''
 
-  if (commander.source) {
-    query._source = commander.source
-  }
+        if (commander.inputFileFormat === 'LINE_DELIMETED_JSON') {
+          const rl = readline.createInterface({
+            input: stream
+          })
 
-  if (commander.sourceExclude) {
-    query._sourceExclude = commander.sourceExclude
-  }
+          rl.on('line', (line) => {
+            lines.push(JSON.parse(line))
+            if (lines.length >= commander.size) {
+              stream.pause()
+              return commander.processModule.process(lines, commander)
+              .then(() => {
+                lines = []
+                stream.resume()
+              })
+            }
+          })
 
-  if (commander.sourceInclude) {
-    query._sourceInclude = commander.sourceInclude
-  }
+          rl.on('close', () => {
+            if (lines.length) {
+              return commander.processModule.process(json, commander)
+              .then(deferred.resolve)
+            }
+            deferred.resolve()
+          })
+        }
+        else if (commander.inputFileFormat === 'JSON') {
+          stream.on('data', (chunk) => {
+            stream.pause()
 
-  return commander.inputESClient.search(query)
-  .then(scanAndScroll)
-  .catch(function(ex) {
-    if (/not found/i.test(ex.message)) {
-      debug('Processed successfully')
+            chunk = buffer + chunk
+            chunk = chunk.trim().replace(/^\[/, '')
+
+            var i = chunk.length - 1
+            while (true) {
+              while ((chunk[i] != ',' && chunk[i] != ']') && i > 0) {
+                i--
+              }
+              try {
+                chunk = '[' + chunk.substr(0, i) + ']'
+                json = JSON.parse(chunk)
+                buffer = chunk.substr(i + 1)
+                break;
+              }
+              catch (ex) {
+              }
+            }
+
+            if (json) {
+              return commander.processModule.process(json, commander)
+              .then(() => stream.resume())
+            }
+            else {
+              stream.resume()
+            }
+          })
+          stream.on('end', () => deferred.resolve)
+          stream.on('error', () => deferred.reject)
+        }
+        return deferred.promise
+      })
     }
-    else {
-      error(ex)
-      debug('Failed')
+    else if (commander.inputUriType === 'elasticsearch') {
+      var query = {
+        index: commander.inputIndex,
+        type: commander.inputType,
+        scroll: commander.scroll || '1m',
+        searchType: 'scan',
+        queryCache: true,
+        sort: ['_doc'],
+        size: commander.size || 50,
+        body: commander.query
+      }
+
+      if (commander.source) {
+        query._source = commander.source
+      }
+
+      if (commander.sourceExclude) {
+        query._sourceExclude = commander.sourceExclude
+      }
+
+      if (commander.sourceInclude) {
+        query._sourceInclude = commander.sourceInclude
+      }
+
+      return commander.inputESClient.search(query)
+      .then(scanAndScroll)
+      .catch((ex) => {
+        if (/not found/i.test(ex.message)) {
+          debug('Processed successfully')
+        }
+        else {
+          error(ex)
+          debug('Failed')
+        }
+      })
     }
   })
-  .then(function() {
-    if (commander.outputStream) {
-      commander.outputStream.close()
+  .then(() => {
+    if (commander.outputFileStream) {
+      commander.outputFileStream.close()
     }
     process.exit(0)
   })
@@ -143,11 +220,7 @@ function createStreams(arr, type) {
       }
     }
 
-    if (type == 'input' && !(commander.inputIndex && commander.inputType)) {
-      throw new Error('Missing elasticsearch index name or index type')
-    }
-
-    var hosts = _.map(arr, function(uri) {
+    var hosts = _.map(arr, (uri) => {
       u = URL.parse(uri)
       u.protocol = 'http'
       u.pathname = '/'
@@ -163,41 +236,80 @@ function createStreams(arr, type) {
     })
   }
   else if (uriType === 'file') {
-    if (!commander[type + 'Format']) {
-      throw new Error('Missing ' + type + ' file format for file uri')
+    if (type === 'output') {
+      if (arr.length !== 1) {
+        throw new Error('Output doesnt support multiple files')
+      }
+      else {
+        commander.outputFileStream = fs.createWriteStream(arr[0].replace('file://', ''))
+      }
+
+      if (!commander.outputFileFormat) {
+        commander.outputFileFormat = 'LINE_DELIMETED_JSON'
+      }
     }
+    else {
+      commander.inputFileStreams = _.map(arr, (file) => {
+        file = file.replace('file://', '')
+        return fs.createReadStream(file, {
+          encoding: 'utf8',
+        })
+      })
 
-    if (type === 'output' && arr.length !== 1) {
-      throw new Error('Output doesnt support multiple files')
+      if (!commander.inputFileFormat) {
+        commander.inputFileFormat = 'LINE_DELIMETED_JSON'
+      }
     }
-
-    var streamType = (type === 'input') ? 'Read' : 'Write'
-    var streams = commander[type + 'Streams'] = []
-
-    streams.push(_.map(arr, (file) => fs['create' + streamType + 'Stream'](file.replace('file://'))))
   }
 }
 
-function common(query, options) {
+function parseOptions(query, options) {
 
   if (options) {
     _.extend(commander, options)
   }
 
-  debug('input', commander.input)
+  if (!commander.input && !commander.inputConfig) {
+    throw new Error('--input or --input-config required')
+  }
 
-  try {
-    createStreams(commander.input, 'input')
-    if (commander.output) {
-      createStreams(commander.output, 'output')
+  if (commander.input) {
+    debug('input', commander.input)
+
+    try {
+      createStreams(commander.input, 'input')
     }
-    else if (commander.task == 'dump') {
-      createStreams(commander.input, 'output')
+    catch (ex) {
+      error(ex)
+      process.exit(0)
     }
   }
-  catch (ex) {
-    error(ex)
-    process.exit(0)
+  else {
+    commander.inputUriType = 'elasticsearch'
+    commander['inputESClient'] = new elasticsearch.Client(require(commander.inputConfig))
+  }
+
+  if (commander.output) {
+    debug('output', commander.output)
+
+    try {
+      createStreams(commander.output, 'output')
+    }
+    catch (ex) {
+      error(ex)
+      process.exit(0)
+    }
+  }
+  else if (commander.outputConfig) {
+    commander.outputUriType = 'elasticsearch'
+    commander['outputESClient'] = new elasticsearch.Client(require(commander.outputConfig))
+  }
+  else if (commander.task == 'dump') {
+    createStreams(commander.input, 'output')
+  }
+
+  if (commander.inputUriType === 'elasticsearch' && !(commander.inputIndex && commander.inputType)) {
+    throw new Error('Missing elasticsearch input index name or input index type')
   }
 
   if ((commander.task === 'delete' || commander.task === 'update') && commander.inputUriType === 'file') {
@@ -224,10 +336,10 @@ function common(query, options) {
   if (commander.task === 'delete') {
     if (commander.inputUriType === 'elasticsearch') {
       if (!commander.processModule) {
-        commander.process = require('./es-delete.js')
+        commander.processModule = require('./es-delete.js')
       }
       else {
-        commander.process = require(commander.processModule)
+        commander.processModule = require(commander.processModule)
       }
     }
     else {
@@ -237,10 +349,10 @@ function common(query, options) {
   else if (commander.task === 'update') {
     if (commander.inputUriType === 'elasticsearch') {
       if (!commander.processModule) {
-        commander.process = require('./es-update.js')
+        commander.processModule = require('./es-update.js')
       }
       else {
-        commander.process = require(commander.processModule)
+        commander.processModule = require(commander.processModule)
       }
     }
     else {
@@ -248,20 +360,47 @@ function common(query, options) {
     }
   }
   else if (commander.task === 'dump') {
-    if (commander.inputUriType === 'elasticsearch' && commander.outputUriType === 'elasticsearch') {
-      if (!commander.outputIndex) {
-        commander.outputIndex = commander.inputIndex
-      }
+    if (commander.inputUriType === 'elasticsearch') {
+      if (commander.outputUriType === 'elasticsearch') {
+        if (!commander.outputIndex) {
+          commander.outputIndex = commander.inputIndex
+        }
 
-      if (!commander.outputType) {
-        commander.outputType = commander.inputType
-      }
+        if (!commander.outputType) {
+          commander.outputType = commander.inputType
+        }
 
-      if (!commander.processModule) {
-        commander.process = require('./es-dump.js')
+        if (!commander.processModule) {
+          commander.processModule = require('./es-dump.js')
+        }
+        else {
+          commander.processModule = require(commander.processModule)
+        }
+      }
+      else if (commander.outputUriType === 'file') {
+        if (!commander.processModule) {
+          commander.processModule = require('./fs-dump.js')
+        }
+        else {
+          commander.processModule = require(commander.processModule)
+        }
+      }
+    }
+    else if (commander.inputUriType === 'file') {
+      if (commander.outputUriType === 'elasticsearch') {
+        if (!commander.outputIndex && !commander.outputType) {
+          throw new Error('OutputIndex and OuputType not set')
+        }
+
+        if (!commander.processModule) {
+          commander.processModule = require('./file-es-dump.js')
+        }
+        else {
+          commander.processModule = require(commander.processModule)
+        }
       }
       else {
-        commander.process = require(commander.processModule)
+        throw new Error('not yet supported dump for input uri ' + commander.inputUriType + ' output uri ' + commander.outputUriType)
       }
     }
     else {
@@ -279,19 +418,21 @@ function list(val) {
 }
 
 commander
-  .version('0.0.1')
-  .option('--input <input>', 'input uris, elasticsearch client nodes supports list, '
-          + 'example: elasticsearch://localhost:9200/my_index/my_type,http://192.168.0.1:9200/my_index/my_type', list)
+  .version('0.0.7')
+  .option('--input [input]', 'input uris, elasticsearch client nodes supports list, '
+          + 'example: elasticsearch://localhost:9200/my_index/my_type,http://192.168.0.1:9200/my_index/my_type or file://dump.json', list)
+  .option('--input-config [inputConfig]', 'input elasticsearch configuration module, '
+          + 'https://www.elastic.co/guide/en/elasticsearch/client/javascript-api/current/configuration.html')
   .option('--quiet', 'dont ask for confirmation')
   .option('--input-index [inputIndex]', 'input elasticsearch index')
   .option('--input-type [inputType]', 'input elasticsearch type')
-  .option('--input-format [inputFormat]', 'if input is file uri, format of the file: JSON, LINE_DELIMETED_JSON, CSV')
+  .option('--input-file-format [inputFileFormat]', 'if input is file uri, format of the file: JSON, LINE_DELIMETED_JSON, CSV')
   .option('--scroll [scroll]', 'scroll context timeout, default: 1m')
   .option('--size [size]', 'number of documents to fetch at a time, default: 50')
   .option('--max [max]', 'max number of documents to process, default: all')
-  .option('--query-file [queryFile]', 'File to read the query from')
+  .option('--query-file [queryFile]', 'file to read the query from')
   .option('--process-module [processModule]', 'module to manipulate the input documents,'
-          + 'signature: module.exports = function(resp, commander) {}')
+          + 'example: src/es-dump.js')
   .option('--source [source]', 'list of fields to fetch, default: all example: title,content', list)
   .option('--sourceExclude [sourceExclude]', 'list of fields to exclude, example: title,content', list)
   .option('--sourceInclude [sourceInclude]', 'list of fields to include, example: title,content', list)
@@ -303,7 +444,7 @@ commander
     commander.task = 'delete'
     commander._source = false
     try {
-      common(query)
+      parseOptions(query)
     } catch (ex) {
       error(ex)
     }
@@ -312,22 +453,25 @@ commander
 commander
   .command('update [query]')
   .description('update documents by query')
-  .action(function(query) {
+  .action((query) => {
     commander.task = 'update'
-    common(query)
+    parseOptions(query)
   })
 
 commander
   .command('dump [query]')
   .description('dump documents by query')
   .option('--output [output]', 'list of elasticsearch client nodes, '
-          + 'example: elasticsearch://localhost:9200,http://192.168.0.1:9200', list)
+          + 'example: elasticsearch://localhost:9200,http://192.168.0.1:9200 or file://dump.json', list)
+  .option('--output-config [outputConfig]', 'output elasticsearch configuration module, '
+          + 'https://www.elastic.co/guide/en/elasticsearch/client/javascript-api/current/configuration.html')
   .option('--output-index [outputIndex]', 'output elasticsearch index')
   .option('--output-type [outputType]', 'output elasticsearch type')
-  .option('--output-format [outputFormat]', 'if output is file uri, format of the file: JSON, LINE_DELIMETED_JSON, CSV')
-  .action(function(query, options) {
+  .option('--output-file-format [outputFileFormat]', 'if output is file uri, format of the file: JSON, LINE_DELIMETED_JSON, CSV, default: LINE_DELIMETED_JSON')
+  .action((query, options) => {
     commander.task = 'dump'
-    common(query, options)
+    parseOptions(query, options)
   })
+
 commander.parse(process.argv)
 
